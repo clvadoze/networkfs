@@ -2,9 +2,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 
-
-
-
+#define TOKEN f22aea6a-152e-4df0-bffb-2009965129c6
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Ivanov Ivan");
