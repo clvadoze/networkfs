@@ -43,7 +43,7 @@ int networkfs_iterate(struct file *filp, struct dir_context *ctx) {
 
       default:
         return record_counter;
-    }
+    }/////
 
     ++record_counter;
     ++ctx->pos;
