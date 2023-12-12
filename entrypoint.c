@@ -26,27 +26,37 @@ int networkfs_iterate(struct file *filp, struct dir_context *ctx) {
   struct dentry *dentry = filp->f_path.dentry;
   struct inode *inode = dentry->d_inode;
   const char *token = inode->i_sb->s_fs_info;
+  struct entry *current_entry;
 
   size_t buffer_size = sizeof(struct entries);
   struct entries *buffer = kmalloc(buffer_size, GFP_KERNEL);
   char *ino_ascii = kmalloc(sizeof(ino_t), GFP_KERNEL);
   sprintf(ino_ascii, "%lu", inode->i_ino);
-  int64_t ret = networkfs_http_call(token, "list", (char *)buffer, buffer_size, 1, "inode",
-                      ino_ascii);
+  int64_t ret = networkfs_http_call(token, "list", (char *)buffer, buffer_size,
+                                    1, "inode", ino_ascii);
   if (ret != 0) {
-    return ret;
+    return -1;
   }
-  dir_emit(ctx, ".", 1, inode->i_ino, DT_DIR);
-  ++ctx->pos;
-  dir_emit(ctx, "..", 2, dentry->d_parent->d_inode->i_ino, DT_DIR);
-  ++ctx->pos;
-
-  for (int i = 0; i < buffer->entries_count; ++i) {
-    struct entry *e = buffer->entries + i;
-    dir_emit(ctx, e->name, strlen(e->name), e->ino, e->entry_type);
+  loff_t start_cnt = ctx->pos;
+  size_t files_cnt = buffer->entries_count + 2;
+  while (ctx->pos < files_cnt) {
+    switch (ctx->pos) {
+      case 0:
+        dir_emit(ctx, ".", 1, inode->i_ino, DT_DIR);
+        break;
+      case 1:
+        dir_emit(ctx, "..", 2, dentry->d_parent->d_inode->i_ino, DT_DIR);
+        break;
+      default:
+        current_entry = buffer->entries + ctx->pos - 2;
+        dir_emit(ctx, current_entry->name, strlen(current_entry->name),
+                 current_entry->ino, current_entry->entry_type);
+    }
     ++ctx->pos;
   }
-  return 2 + buffer->entries_count;
+  kfree(buffer);
+  kfree(ino_ascii);
+  return files_cnt - start_cnt;
 }
 
 struct file_operations networkfs_dir_ops = {
