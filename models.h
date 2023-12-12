@@ -16,8 +16,12 @@ struct entry_info {
   ino_t ino;
 };
 
+struct create_info {
+  ino_t ino;
+};
+
 #define ALLOC_INO                                       \
-  char *ino_ascii = kmalloc(sizeof(ino_t), GFP_KERNEL); \
+  char *ino_ascii = kmalloc(sizeof(ino_t) + 1, GFP_KERNEL); \
   if (ino_ascii == NULL) {                              \
     ret = -ENOMEM;                                      \
     goto ino_end;                                       \

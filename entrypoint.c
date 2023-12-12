@@ -45,6 +45,9 @@ struct dentry *networkfs_lookup(struct inode *parent, struct dentry *child,
 
   struct inode *inode =
       networkfs_get_inode(parent->i_sb, NULL, mode | S_IRWXUGO, buffer->ino);
+  if (inode == NULL) {
+    goto free;
+  }
   d_add(child, inode);
 
 free:
@@ -53,36 +56,47 @@ free:
   return NULL;
 }
 
-int networkfs_unlink(struct inode *parent, struct dentry *child) {
+int networkfs_rm_impl(struct inode *parent, struct dentry *child, const char* method) {
   const char *name = child->d_name.name;
   const char *token = parent->i_sb->s_fs_info;
   uint64_t ret;
   ALLOC_INO
   sprintf(ino_ascii, "%lu", parent->i_ino);
-  ret = networkfs_http_call(token, "unlink", NULL, 0, 2,
-                            "parent", ino_ascii, "name", name);
+  ret = networkfs_http_call(token, method, NULL, 0, 2, "parent", ino_ascii,
+                            "name", name);
 
   FREE_INO
   return ret;
 }
-int networkfs_create(struct user_namespace *user_ns, struct inode *parent,
-                     struct dentry *child, umode_t mode, bool b) {
+
+int networkfs_unlink(struct inode *parent, struct dentry *child) {
+  return networkfs_rm_impl(parent, child, "unlink");
+}
+
+int networkfs_rmdir(struct inode *parent, struct dentry *child) {
+  return networkfs_rm_impl(parent, child, "rmdir");
+}
+
+int networkfs_create_impl(struct inode *parent, struct dentry *child,
+                          umode_t mode, const char *type) {
   const char *name = child->d_name.name;
   const char *token = parent->i_sb->s_fs_info;
   uint64_t ret;
-  ALLOC_BUF(ino_t);
+  ALLOC_BUF(struct create_info)
   ALLOC_INO
   sprintf(ino_ascii, "%lu", parent->i_ino);
   ret = networkfs_http_call(token, "create", (char *)buffer, buffer_size, 3,
-                            "parent", ino_ascii, "name", name, "type", "file");
+                            "parent", ino_ascii, "name", name, "type", type);
   if (ret != 0) {
     goto free;
   }
-  struct inode* new_inode = networkfs_get_inode(parent->i_sb, NULL, mode | S_IFREG | S_IRWXUGO, *buffer);
-  if (new_inode == NULL) {
+  struct inode *inode =
+      networkfs_get_inode(parent->i_sb, NULL, mode, buffer->ino);
+  if (inode == NULL) {
+    ret = -1;
     goto free;
   }
-  d_add(child, new_inode);
+  d_add(child, inode);
 
 free:
   FREE_BUF
@@ -90,9 +104,24 @@ free:
   return ret;
 }
 
+int networkfs_create(struct user_namespace *user_ns, struct inode *parent,
+                     struct dentry *child, umode_t mode, bool b) {
+  return networkfs_create_impl(parent, child, mode | S_IFREG | S_IRWXUGO,
+                               "file");
+}
+
+int networkfs_mkdir(struct user_namespace *user_ns, struct inode *parent,
+                    struct dentry *child, umode_t mode) {
+  return networkfs_create_impl(parent, child, mode | S_IFDIR | S_IRWXUGO,
+                               "directory");
+}
+
 struct inode_operations networkfs_inode_ops = {.lookup = &networkfs_lookup,
                                                .create = &networkfs_create,
-                                               .unlink = &networkfs_unlink};
+                                               .unlink = &networkfs_unlink,
+                                               .mkdir = &networkfs_mkdir,
+                                               .rmdir = &networkfs_rmdir
+};
 
 int networkfs_iterate(struct file *filp, struct dir_context *ctx) {
   struct dentry *dentry = filp->f_path.dentry;
