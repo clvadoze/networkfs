@@ -8,7 +8,7 @@ cmake_minimum_required(VERSION 3.14 FATAL_ERROR)
 project(networkfs LANGUAGES C CXX)
 
 # List driver sources
-set(SOURCES entrypoint.c http.c)
+set(SOURCES fs_module.c http.c)
 
 # We use gnu++17
 set(CMAKE_C_STANDARD 17)
