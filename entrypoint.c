@@ -9,6 +9,8 @@
 
 #define TOKEN_PATTERN "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
+#define MAX_TITLE_LEN 255
+
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Matson Artem");
 MODULE_VERSION("0.01");
@@ -17,9 +19,17 @@ struct inode *networkfs_get_inode(struct super_block *sb,
                                   const struct inode *parent, umode_t mode,
                                   int i_ino);
 
+int check_name_len(const char* name) {
+  return strlen(name) > MAX_TITLE_LEN;
+}
+
+
 struct dentry *networkfs_lookup(struct inode *parent, struct dentry *child,
                                 unsigned int flag) {
   const char *name = child->d_name.name;
+  if (check_name_len(name)) {
+    return NULL;
+  }
   const char *token = parent->i_sb->s_fs_info;
   uint64_t ret;
   ALLOC_BUF(struct entry_info)
@@ -56,7 +66,8 @@ free:
   return NULL;
 }
 
-int networkfs_rm_impl(struct inode *parent, struct dentry *child, const char* method) {
+int networkfs_rm_impl(struct inode *parent, struct dentry *child,
+                      const char *method) {
   const char *name = child->d_name.name;
   const char *token = parent->i_sb->s_fs_info;
   uint64_t ret;
@@ -80,6 +91,9 @@ int networkfs_rmdir(struct inode *parent, struct dentry *child) {
 int networkfs_create_impl(struct inode *parent, struct dentry *child,
                           umode_t mode, const char *type) {
   const char *name = child->d_name.name;
+  if (check_name_len(name)) {
+    return -1;
+  }
   const char *token = parent->i_sb->s_fs_info;
   uint64_t ret;
   ALLOC_BUF(struct create_info)
@@ -120,8 +134,7 @@ struct inode_operations networkfs_inode_ops = {.lookup = &networkfs_lookup,
                                                .create = &networkfs_create,
                                                .unlink = &networkfs_unlink,
                                                .mkdir = &networkfs_mkdir,
-                                               .rmdir = &networkfs_rmdir
-};
+                                               .rmdir = &networkfs_rmdir};
 
 int networkfs_iterate(struct file *filp, struct dir_context *ctx) {
   struct dentry *dentry = filp->f_path.dentry;

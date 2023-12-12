@@ -20,11 +20,11 @@ struct create_info {
   ino_t ino;
 };
 
-#define ALLOC_INO                                       \
+#define ALLOC_INO                                           \
   char *ino_ascii = kmalloc(sizeof(ino_t) + 1, GFP_KERNEL); \
-  if (ino_ascii == NULL) {                              \
-    ret = -ENOMEM;                                      \
-    goto ino_end;                                       \
+  if (ino_ascii == NULL) {                                  \
+    ret = -ENOMEM;                                          \
+    goto ino_end;                                           \
   }
 
 #define FREE_INO    \
@@ -36,9 +36,9 @@ struct create_info {
   model *buffer = kmalloc(buffer_size, GFP_KERNEL); \
   if (buffer == NULL) {                             \
     ret = -ENOMEM;                                  \
-    goto buf_end;                               \
+    goto buf_end;                                   \
   }
 
-#define FREE_BUF     \
-  kfree(buffer);     \
+#define FREE_BUF \
+  kfree(buffer); \
   buf_end:
