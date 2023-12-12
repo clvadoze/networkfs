@@ -13,29 +13,101 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Matson Artem");
 MODULE_VERSION("0.01");
 
+struct inode *networkfs_get_inode(struct super_block *sb,
+                                  const struct inode *parent, umode_t mode,
+                                  int i_ino);
+
 struct dentry *networkfs_lookup(struct inode *parent, struct dentry *child,
                                 unsigned int flag) {
+  const char *name = child->d_name.name;
+  const char *token = parent->i_sb->s_fs_info;
+  uint64_t ret;
+  ALLOC_BUF(struct entry_info)
+  ALLOC_INO
+  sprintf(ino_ascii, "%lu", parent->i_ino);
+  ret = networkfs_http_call(token, "lookup", (char *)buffer, buffer_size, 2,
+                            "parent", ino_ascii, "name", name);
+  if (ret != 0) {
+    goto free;
+  }
+
+  umode_t mode;
+  switch (buffer->entry_type) {
+    case DT_DIR:
+      mode = S_IFDIR;
+      break;
+    case DT_REG:
+      mode = S_IFREG;
+      break;
+    default:
+      goto free;
+  }
+
+  struct inode *inode =
+      networkfs_get_inode(parent->i_sb, NULL, mode | S_IRWXUGO, buffer->ino);
+  d_add(child, inode);
+
+free:
+  FREE_INO
+  FREE_BUF
   return NULL;
 }
 
-struct inode_operations networkfs_inode_ops = {
-    .lookup = &networkfs_lookup,
-};
+int networkfs_unlink(struct inode *parent, struct dentry *child) {
+  const char *name = child->d_name.name;
+  const char *token = parent->i_sb->s_fs_info;
+  uint64_t ret;
+  ALLOC_INO
+  sprintf(ino_ascii, "%lu", parent->i_ino);
+  ret = networkfs_http_call(token, "unlink", NULL, 0, 2,
+                            "parent", ino_ascii, "name", name);
+
+  FREE_INO
+  return ret;
+}
+int networkfs_create(struct user_namespace *user_ns, struct inode *parent,
+                     struct dentry *child, umode_t mode, bool b) {
+  const char *name = child->d_name.name;
+  const char *token = parent->i_sb->s_fs_info;
+  uint64_t ret;
+  ALLOC_BUF(ino_t);
+  ALLOC_INO
+  sprintf(ino_ascii, "%lu", parent->i_ino);
+  ret = networkfs_http_call(token, "create", (char *)buffer, buffer_size, 3,
+                            "parent", ino_ascii, "name", name, "type", "file");
+  if (ret != 0) {
+    goto free;
+  }
+  struct inode* new_inode = networkfs_get_inode(parent->i_sb, NULL, mode | S_IFREG | S_IRWXUGO, *buffer);
+  if (new_inode == NULL) {
+    goto free;
+  }
+  d_add(child, new_inode);
+
+free:
+  FREE_BUF
+  FREE_INO
+  return ret;
+}
+
+struct inode_operations networkfs_inode_ops = {.lookup = &networkfs_lookup,
+                                               .create = &networkfs_create,
+                                               .unlink = &networkfs_unlink};
 
 int networkfs_iterate(struct file *filp, struct dir_context *ctx) {
   struct dentry *dentry = filp->f_path.dentry;
   struct inode *inode = dentry->d_inode;
   const char *token = inode->i_sb->s_fs_info;
   struct entry *current_entry;
+  int64_t ret;
 
-  size_t buffer_size = sizeof(struct entries);
-  struct entries *buffer = kmalloc(buffer_size, GFP_KERNEL);
-  char *ino_ascii = kmalloc(sizeof(ino_t), GFP_KERNEL);
+  ALLOC_BUF(struct entries)
+  ALLOC_INO
   sprintf(ino_ascii, "%lu", inode->i_ino);
-  int64_t ret = networkfs_http_call(token, "list", (char *)buffer, buffer_size,
-                                    1, "inode", ino_ascii);
+  ret = networkfs_http_call(token, "list", (char *)buffer, buffer_size, 1,
+                            "inode", ino_ascii);
   if (ret != 0) {
-    return -1;
+    goto free;
   }
   loff_t start_cnt = ctx->pos;
   size_t files_cnt = buffer->entries_count + 2;
@@ -54,13 +126,16 @@ int networkfs_iterate(struct file *filp, struct dir_context *ctx) {
     }
     ++ctx->pos;
   }
-  kfree(buffer);
-  kfree(ino_ascii);
-  return files_cnt - start_cnt;
+  ret = files_cnt - start_cnt;
+
+free:
+  FREE_INO
+  FREE_BUF
+  return ret;
 }
 
 struct file_operations networkfs_dir_ops = {
-    .iterate = networkfs_iterate,
+    .iterate = &networkfs_iterate,
 };
 
 struct inode *networkfs_get_inode(struct super_block *sb,
