@@ -1,10 +1,12 @@
-// #include <linux/fs.h>
+#include <linux/fs.h>
 #include <linux/fs_context.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 
-#define TOKEN "f22aea6a-152e-4df0-bffb-2009965129c6"
+#include "http.h"
+#include "models.h"
+
 #define TOKEN_PATTERN "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 MODULE_LICENSE("GPL");
@@ -23,31 +25,28 @@ struct inode_operations networkfs_inode_ops = {
 int networkfs_iterate(struct file *filp, struct dir_context *ctx) {
   struct dentry *dentry = filp->f_path.dentry;
   struct inode *inode = dentry->d_inode;
+  const char *token = inode->i_sb->s_fs_info;
 
-  loff_t record_counter = 0;
+  size_t buffer_size = sizeof(struct entries);
+  struct entries *buffer = kmalloc(buffer_size, GFP_KERNEL);
+  char *ino_ascii = kmalloc(sizeof(ino_t), GFP_KERNEL);
+  sprintf(ino_ascii, "%lu", inode->i_ino);
+  int64_t ret = networkfs_http_call(token, "list", (char *)buffer, buffer_size, 1, "inode",
+                      ino_ascii);
+  if (ret != 0) {
+    return ret;
+  }
+  dir_emit(ctx, ".", 1, inode->i_ino, DT_DIR);
+  ++ctx->pos;
+  dir_emit(ctx, "..", 2, dentry->d_parent->d_inode->i_ino, DT_DIR);
+  ++ctx->pos;
 
-  while (true) {
-    switch (ctx->pos) {
-      case 0:
-        dir_emit(ctx, ".", 1, inode->i_ino, DT_DIR);
-        break;
-
-      case 1:
-        struct inode *parent_inode = dentry->d_parent->d_inode;
-        dir_emit(ctx, "..", 2, parent_inode->i_ino, DT_DIR);
-        break;
-
-      case 2:
-        dir_emit(ctx, "test.txt", strlen("test.txt"), 1001, DT_REG);
-        break;
-
-      default:
-        return record_counter;
-    }
-
-    ++record_counter;
+  for (int i = 0; i < buffer->entries_count; ++i) {
+    struct entry *e = buffer->entries + i;
+    dir_emit(ctx, e->name, strlen(e->name), e->ino, e->entry_type);
     ++ctx->pos;
   }
+  return 2 + buffer->entries_count;
 }
 
 struct file_operations networkfs_dir_ops = {
@@ -71,7 +70,8 @@ struct inode *networkfs_get_inode(struct super_block *sb,
 }
 
 int networkfs_fill_super(struct super_block *sb, struct fs_context *fc) {
-  struct inode *inode = networkfs_get_inode(sb, NULL, S_IFDIR, 1000);
+  struct inode *inode =
+      networkfs_get_inode(sb, NULL, S_IFDIR | S_IRWXUGO, 1000);
   sb->s_root = d_make_root(inode);
 
   if (sb->s_root == NULL) {
